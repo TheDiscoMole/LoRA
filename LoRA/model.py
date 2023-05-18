@@ -39,17 +39,17 @@ class Layer (torch.nn.Module):
         del self.tasks[task]
         return self
 
-    def state_dict (self, prefix="", task=None, **kwargs):
-        return self.module.state_dict(prefix=f"{prefix}module.", **kwargs) if task is None else self.tasks[task].state_dict(prefix=f"{prefix}module.", **kwargs)
+    def state_dict (self, task=None, prefix="", **kwargs):
+        state_dict = {}
 
-    def load_state_dict (self, state_dict, prefix="", task=None, **kwargs):
-        if task is None: return self.module.load_state_dict(state_dict, **kwargs)
+        if task is None: self.module._save_to_state_dict(destination=state_dict, prefix=f"{prefix}module.", keep_vars=False)
+        else: return self.tasks[task].state_dict(prefix=f"{prefix}module.")
 
-        prefix = f"{prefix}module."
-        state_dict = {k[len(prefix)]:v for k,v in state_dict.items() if prefix in k}
-        self.tasks[task].load_state_dict(state_dict, **kwargs)
+        return state_dict
 
-        return self
+    def load_state_dict (self, state_dict, task=None, strict=True, **kwargs):
+        if task is None: return self.module.load_state_dict({k[len("module."):]:v for k,v in state_dict.items() if "module." in k}, strict=strict)
+        else: return self.tasks[task].load_state_dict({k[len(f"{task}.module."):]:v for k,v in state_dict.items() if f"{task}.module." in k}, strict=strict)
 
 class Model (torch.nn.Module):
     """
@@ -98,31 +98,30 @@ class Model (torch.nn.Module):
         for module in self.lora_layers(): module.remove_task(task=task)
         return self
 
-    def state_dict (self, prefix="", task=None, **kwargs):
-        if task is None: return self.model.state_dict(destination=collections.OrderedDict(), prefix=prefix)
+    def state_dict (self, task=None, **kwargs):
 
-        def df_task_state_dict (module, prefix, task):
-            task_state_dict = {}
+        def df_state_dict (module, prefix, task):
+            state_dict = {}
 
-            if isinstance(module, Layer):
-                return module.state_dict(prefix=f"{prefix}{task}.", task=task)
-
-            for name,child in module.named_children():
-                task_state_dict = {**task_state_dict, **df_task_state_dict(child, f"{prefix}{name}.", task)}
-
-            return task_state_dict
-
-        return collections.OrderedDict(df_task_state_dict(self.model, prefix, task))
-
-    def load_state_dict (self, state_dict, prefix="", task=None, **kwargs):
-        if task is None: return self.model.load_state_dict(state_dict)
-
-        def df_load_task_state_dict (module, state_dict, prefix, task):
-            if isinstance(module, Layer):
-                return module.load_state_dict(state_dict, prefix=f"{prefix}{task}.", task=task)
+            if isinstance(module, Layer): return module.state_dict(prefix=prefix if task is None else f"{prefix}{task}.", task=task)
+            elif task is None: module._save_to_state_dict(destination=state_dict, prefix=prefix, keep_vars=False)
 
             for name,child in module.named_children():
-                df_load_task_state_dict (child, state_dict, f"{prefix}{name}.", task)
-        df_load_task_state_dict(self.model, state_dict, prefix, task)
+                state_dict = {**state_dict, **df_state_dict(child, f"{prefix}{name}.", task)}
 
-        return self
+            return state_dict
+
+        return collections.OrderedDict(df_state_dict(self.model, "", task))
+
+    def load_state_dict (self, state_dict, task=None, strict=True, **kwargs):
+        missing_keys = []
+
+        def df_load_task_state_dict (module, state_dict, task, missing_keys):
+            if isinstance(module, Layer): return missing_keys.extend(module.load_state_dict(state_dict, task=task, strict=strict).missing_keys)
+            elif task is None: module._load_from_state_dict(state_dict, "", {}, strict, missing_keys, [], [])
+
+            for name,child in module.named_children():
+                df_load_task_state_dict (child, {k[len(f"{name}."):]:v for k,v in state_dict.items() if f"{name}." in k}, task, missing_keys)
+        df_load_task_state_dict(self.model, state_dict, task, missing_keys)
+
+        return torch.nn.modules.module._IncompatibleKeys(missing_keys=missing_keys, unexpected_keys=[])
