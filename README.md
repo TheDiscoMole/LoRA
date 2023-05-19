@@ -60,19 +60,25 @@ model.add_task("anime")      # diffusion LoRA task for an anime art style
 model.remove_task("anime")   # because weebs are scum
 ```
 
-4. When computing outputs during training or inference specify your LoRA task.
+4. Freeze parameters if you like.
+```
+model.requires_grad_(requires_grad=False)                    # freezes the base model parameters
+model.requires_grad_(requires_grad=False, task="minimalist") # freezes LoRA task model parameters
+```
+
+5. When computing outputs during training or inference specify your LoRA task.
 ```
 model(input)                    # model outputs without LoRA task
 model(input, task="minimalist") # model outputs with LoRA task
 ```
 
-5. When saving a checkpoint using `state_dict`, specify your LoRA task.
+6. When saving a checkpoint using `state_dict`, specify your LoRA task.
 ```
 checkpoint = model.state_dict()                  # get base model parameters
 checkpoint = model.state_dict(task="minimalist") # get LoRA task parameters ONLY
 ```
 
-6. When loading a checkpoint using `load_state_dict`, specify your LoRA task.
+7. When loading a checkpoint using `load_state_dict`, specify your LoRA task.
 ```
 model.load_state_dict(checkpoint)                    # set base model parameters
 model.load_state_dict(checkpoint, task="minimalist") # set LoRA task parameters ONLY
@@ -116,6 +122,6 @@ LoRADiffusion(prompt, tasks=["surrealism","cubeism","expressionism","birds","hor
 ```
 ## Contributing
 
-This repository mainly serves personal research purposes. Unfortunately this approach requires re-implementation of a lot of the inherent `torch.nn.Module` functionality, and this interface comes with a lot of debt and inconsistent behaviour. Contributions are welcome, but might be better directed at `loralib`.
+This repository mainly serves personal research purposes. Contributions are welcome, but might be better directed at `loralib`.
 
 This repository uses the `MIT License`.

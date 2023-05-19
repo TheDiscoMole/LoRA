@@ -39,6 +39,10 @@ class Layer (torch.nn.Module):
         del self.tasks[task]
         return self
 
+    def requires_grad_ (self, requires_grad=True, task=None):
+        if task is None: return self.module.requires_grad_(requires_grad=requires_grad)
+        else: return self.tasks[task].requires_grad_(requires_grad=requires_grad)
+
     def state_dict (self, task=None, prefix="", **kwargs):
         state_dict = {}
 
@@ -96,6 +100,20 @@ class Model (torch.nn.Module):
 
     def remove_task (self, task):
         for module in self.lora_layers(): module.remove_task(task=task)
+        return self
+
+    def requires_grad_ (self, requires_grad=True, task=None):
+
+        def df_requires_grad_ (module, requires_grad, task):
+            if isinstance(module, Layer): return module.requires_grad_(requires_grad=requires_grad, task=task)
+            elif task is None:
+                for param in module._parameters.values():
+                    if param is not None: param.requires_grad=requires_grad
+
+            for name,child in module.named_children():
+                df_requires_grad_(child, requires_grad, task)
+        df_requires_grad_(self.model, requires_grad, task)
+
         return self
 
     def state_dict (self, task=None, **kwargs):
